@@ -1,0 +1,53 @@
+# Minha Voz no servidor: MySQL + app (Flask) + Caddy (HTTPS automático).
+# Uso: docker compose --env-file servidor.env up -d --build   (o script instalar-servidor.sh faz isso)
+services:
+  banco:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_SENHA_ROOT}
+      MYSQL_DATABASE: minha_voz
+      MYSQL_USER: minhavoz_app
+      MYSQL_PASSWORD: ${MYSQL_SENHA}
+    volumes:
+      - dados-mysql:/var/lib/mysql
+    # Só 127.0.0.1: o MySQL nunca fica aberto para a internet. Dá para usar o Workbench
+    # pelo túnel SSH (veja PUBLICAR-ONLINE.md).
+    ports:
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_SENHA_ROOT}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: banco
+      MYSQL_BANCO: minha_voz
+      MYSQL_USUARIO: minhavoz_app
+      MYSQL_SENHA: ${MYSQL_SENHA}
+      FLASK_DEBUG: "0"
+    depends_on:
+      banco:
+        condition: service_healthy
+
+  web:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - dados-caddy:/data
+    depends_on:
+      - app
+
+volumes:
+  dados-mysql:
+  dados-caddy:

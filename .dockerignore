@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-previa
+backend/.env
+backend/dados.json
+backend/__pycache__
+servidor.env
+*.zip

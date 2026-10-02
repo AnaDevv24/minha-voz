@@ -1,0 +1,10 @@
+# Caddy pega o certificado HTTPS sozinho para o endereço em DOMINIO (arquivo servidor.env).
+{$DOMINIO} {
+	encode gzip
+	reverse_proxy app:8000
+}
+
+# Para colocar outro site no mesmo servidor, acrescente outro bloco, por exemplo:
+# outrosite.123-45-67-89.sslip.io {
+# 	reverse_proxy outro-app:8000
+# }

@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-previa
+*.log
+.DS_Store
+__pycache__
+.venv
+backend/dados.json
+backend/.env
+servidor.env
