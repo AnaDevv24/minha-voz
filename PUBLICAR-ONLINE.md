@@ -1,115 +1,227 @@
-# Publicar o Minha Voz na internet de graça (Oracle Cloud Always Free)
+# Guia: conectar ao MySQL e publicar no GitHub
 
-No final você tem um **servidor Linux só seu, grátis**, com:
+Este guia mostra duas coisas, usando os arquivos que já estão no projeto:
 
-- o app e a API Flask em **https://SEU-IP.sslip.io** (HTTPS automático, sem comprar domínio);
-- um **MySQL 8** completo, do jeito que você quiser configurar;
-- espaço para colocar **outros sites** no mesmo servidor depois.
+1. **MySQL:** como ligar o app ao banco de dados MySQL no seu computador.
+2. **GitHub:** como enviar o projeto para o GitHub e deixar o site aberto de graça pelo GitHub Pages.
 
-Tudo roda em Docker: o script `instalar-servidor.sh` instala, gera senhas fortes e liga.
+Tudo é feito no **Windows**, com o **VSCode**.
 
 ---
 
-## 1. Criar a conta
+## Antes de começar
 
-1. Acesse https://www.oracle.com/br/cloud/free/ e clique em **Comece gratuitamente**.
-2. Na **região inicial (Home Region)** escolha **Brazil East (São Paulo)** ou **Brazil Southeast (Vinhedo)**.
-   Ela não pode ser trocada depois.
-3. O cartão é pedido só para confirmar a identidade. Os recursos marcados como **Always Free** não são cobrados.
+Instale (uma vez só):
 
-## 2. Criar o servidor (VM)
+| Programa | Onde baixar | Observação |
+|---|---|---|
+| Node.js 20 ou mais novo | https://nodejs.org | |
+| Python 3 | https://www.python.org | Na primeira tela, marque **"Add python.exe to PATH"** |
+| Git | https://git-scm.com | Pode ir clicando em **Next** |
+| MySQL Installer | https://dev.mysql.com/downloads/installer/ | Instruções na parte 1 |
 
-1. No painel: **☰ > Compute > Instances > Create instance**.
-2. **Image**: clique em *Change image* e escolha **Canonical Ubuntu 24.04**.
-3. **Shape**: *Change shape* > **Ampere** > **VM.Standard.A1.Flex**, com **2 OCPUs e 12 GB** de memória
-   (tem a etiqueta *Always Free eligible*).
-   - Se aparecer *Out of capacity*, tente outro *Availability domain*, tente mais tarde, ou use
-     **VM.Standard.E2.1.Micro** (também grátis, mas com só 1 GB de memória).
-4. **Networking**: deixe criar a rede nova e marque **Assign a public IPv4 address**.
-5. **Add SSH keys**: escolha **Generate a key pair for me** e clique em **Save private key**.
-   Guarde esse arquivo `.key` (ex.: em `C:\Users\grego\oracle\chave.key`). Sem ele não dá para entrar no servidor.
-6. Clique em **Create**. Quando ficar verde (*Running*), anote o **Public IP address**.
+Depois de instalar, **feche e abra o VSCode de novo**.
 
-## 3. Abrir as portas do site na Oracle
+> **Dica do PowerShell:** se aparecer o erro *"a execução de scripts foi desabilitada neste sistema"*,
+> use `npm.cmd` no lugar de `npm` (ex.: `npm.cmd install`).
 
-1. Na página da instância, clique no nome da **Subnet** e depois na **Security List** (Default Security List...).
-2. **Add Ingress Rules**: *Source CIDR* `0.0.0.0/0`, *IP Protocol* TCP, *Destination Port Range* `80,443`.
-   Clique em **Add Ingress Rules**.
+---
 
-(Não abra a porta 3306: o MySQL fica fechado para a internet de propósito.)
+## Parte 1: conectar o app ao MySQL
 
-## 4. Enviar o projeto e instalar
-
-No **PowerShell** do seu computador, na pasta onde estão a chave e o `minha-voz-projeto.zip`
-(troque `IP` pelo IP do passo 2):
+O app funciona sozinho no navegador ("Modo local"). Quando a API Flask está ligada e conectada ao MySQL,
+tudo o que é feito no app passa a ser gravado no banco ("Servidor conectado").
 
 ```
-icacls chave.key /inheritance:r /grant:r "$($env:USERNAME):(R)"
-scp -i chave.key minha-voz-projeto.zip ubuntu@IP:~
-ssh -i chave.key ubuntu@IP
+App React (navegador)  →  API Flask (backend/app.py)  →  MySQL (banco minha_voz)
+   localhost:5173             localhost:5000               localhost:3306
 ```
 
-(O primeiro comando só arruma a permissão da chave, senão o Windows recusa usar. Na primeira conexão, digite `yes`.)
+### 1.1 Instalar o MySQL
 
-Agora você está **dentro do servidor**. Rode:
+Abra o **MySQL Installer** e escolha estas opções:
 
-```
-sudo apt-get update && sudo apt-get install -y unzip
-unzip -o minha-voz-projeto.zip
-cd minha-voz
-bash instalar-servidor.sh
-```
+| Tela | O que escolher |
+|---|---|
+| Choosing a Setup Type | **Full** (instala o servidor e o Workbench) |
+| Check Requirements | Se reclamar de algo, clique em **Next** e depois em **Yes** |
+| Type and Networking | Deixe *Development Computer* e porta **3306**. **Desmarque** "Open Windows Firewall ports" |
+| Authentication Method | **Use Strong Password Encryption (RECOMMENDED)** |
+| Accounts and Roles | Crie a senha do usuário **root** e anote |
+| Windows Service | Deixe como está (inicia junto com o Windows) |
+| Server File Permissions | Deixe a primeira opção |
+| Apply Configuration | Clique em **Execute** e depois em **Finish** |
+| MySQL Router | Deixe **desmarcado** e clique em **Finish** |
+| Samples and Examples | Digite a senha do root, **Check**, **Execute** e **Finish** |
 
-A primeira vez demora alguns minutos. No final aparece o endereço, algo como
-**https://150-230-10-20.sslip.io**. Abra no navegador e mande para quem quiser.
-Teste também `https://.../api/saude`, que deve mostrar `"banco": "MySQL"`.
+### 1.2 Criar o banco e o usuário do app
 
-As senhas do banco ficam no arquivo `servidor.env`, dentro do servidor (o script cria sozinho).
+1. Abra o **MySQL Workbench** e clique em **Local instance MySQL80**. Digite a senha do root.
+2. Na área branca do meio (aba **Query 1**), cole o texto abaixo.
+   Troque `SuaSenhaForte123` por uma senha nova, só do app, **com letras e números, sem aspas e sem `#`**:
 
-## 5. Atualizar depois de mudar o código
-
-Gere um zip novo do projeto **sem a pasta `node_modules`** (ou use o zip que eu te mandar), envie com o
-mesmo `scp` e, no servidor:
-
-```
-unzip -o minha-voz-projeto.zip && cd minha-voz && bash instalar-servidor.sh
-```
-
-Os dados e as senhas continuam (eles não estão no zip).
-
-## 6. Ver o banco pelo MySQL Workbench
-
-1. Workbench > **+** (nova conexão) > *Connection Method*: **Standard TCP/IP over SSH**.
-2. *SSH Hostname*: `IP`  ·  *SSH Username*: `ubuntu`  ·  *SSH Key File*: o `chave.key`.
-3. *MySQL Hostname*: `127.0.0.1`  ·  *Port*: `3306`  ·  *Username*: `root`.
-4. A senha é a `MYSQL_SENHA_ROOT`. Para ver, no servidor: `cat ~/minha-voz/servidor.env`.
-
-## 7. Cópia de segurança
-
-No servidor, dentro de `~/minha-voz`:
-
-```
-source servidor.env
-sudo docker compose --env-file servidor.env exec -T banco mysqldump -uroot -p"$MYSQL_SENHA_ROOT" minha_voz > backup-$(date +%F).sql
+```sql
+CREATE DATABASE minha_voz CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'minhavoz_app'@'localhost' IDENTIFIED BY 'SuaSenhaForte123';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX ON minha_voz.* TO 'minhavoz_app'@'localhost';
+FLUSH PRIVILEGES;
 ```
 
-Para trazer o backup para o seu computador: `scp -i chave.key ubuntu@IP:~/minha-voz/backup-*.sql .`
+3. Clique no **raio amarelo ⚡** (o primeiro, acima do texto). Embaixo, em *Output*, devem aparecer
+   4 linhas com ✅ verde.
 
-## 8. Colocar outro site no mesmo servidor
+> As tabelas **não** precisam ser criadas à mão: a API cria todas sozinhas na primeira vez que liga
+> (o modelo delas está em `backend/schema.sql`).
 
-O `Caddyfile` já tem um exemplo comentado: cada site ganha um bloco com o endereço dele
-(ex.: `outrosite.150-230-10-20.sslip.io`) e o serviço para onde ele aponta, e o serviço entra no
-`docker-compose.yml`. Depois é só `sudo docker compose --env-file servidor.env up -d`.
+### 1.3 Criar o arquivo `.env` com a senha
 
-## Bom saber
+1. No VSCode, dentro da pasta `backend`, crie um arquivo chamado **`.env`** (com o ponto na frente).
+2. Cole este conteúdo e troque a senha pela mesma do passo 1.2:
 
-- Se o script der erro com `$'\r'`, é porque o Windows mudou o fim das linhas do arquivo. No servidor, rode
-  `sed -i 's/\r$//' instalar-servidor.sh` e tente de novo.
-- **Comandos úteis no servidor:** `sudo docker compose --env-file servidor.env ps` (o que está ligado),
-  `... logs app --tail 50` (erros da API), `... restart` (reiniciar).
-- O servidor reinicia sozinho os serviços se a VM for reiniciada.
-- A Oracle pode desligar instâncias grátis que ficam **paradas por muito tempo** (quase sem uso por vários dias).
-  Se acontecer, é só ligar de novo em *Instances > Start*. Os dados continuam no disco.
-- Quer um endereço bonito (ex.: `minhavoz.com.br`)? Compre o domínio, aponte para o IP e troque `DOMINIO` no
-  `servidor.env`; depois rode `bash instalar-servidor.sh` de novo.
-- O login de demonstração (`mediador@escola.com` / `12345678`) é público. Para uso real, cada pessoa cria a própria conta.
+```
+MYSQL_HOST=localhost
+MYSQL_PORTA=3306
+MYSQL_BANCO=minha_voz
+MYSQL_USUARIO=minhavoz_app
+MYSQL_SENHA=SuaSenhaForte123
+DIAS_SESSAO=30
+FLASK_DEBUG=0
+```
+
+3. Salve com **Ctrl+S** (a bolinha branca na aba do arquivo tem que sumir).
+
+> O `.env` guarda a senha do banco. Ele **não vai para o GitHub** (está no `.gitignore`), então cada
+> computador precisa criar o seu.
+
+### 1.4 Ligar tudo
+
+São **dois terminais** no VSCode (abra outro pelo **+** do terminal).
+
+**Terminal 1 (o app):** na pasta `minha-voz`
+
+```
+npm.cmd install
+npm.cmd run dev
+```
+
+(O `npm install` só é preciso na primeira vez ou depois de baixar o projeto de novo.)
+
+**Terminal 2 (a API):** na pasta `minha-voz`
+
+```
+cd backend
+python -m pip install -r requirements.txt
+python app.py
+```
+
+Tem que aparecer **`Minha Voz API usando: BancoMySQL`**. Deixe os dois terminais abertos.
+
+### 1.5 Conferir
+
+1. Abra **http://localhost:5173** no navegador (não o 5000, que é só a API).
+2. Entre com `mediador@escola.com` / `12345678`. No menu deve aparecer **"Servidor conectado"**.
+3. No Workbench, na aba **Schemas** (canto inferior esquerdo), clique em atualizar 🔄,
+   abra **minha_voz > Tables**, clique com o botão direito em **criancas** e escolha
+   **Select Rows - Limit 1000**. As crianças da demonstração aparecem ali.
+
+### 1.6 Problemas comuns
+
+| Mensagem | O que fazer |
+|---|---|
+| `Access denied for user 'minhavoz_app'` | A senha do `.env` não bate com a do banco. Confira e **salve** o `.env`. Para redefinir, rode no Workbench: `ALTER USER 'minhavoz_app'@'localhost' IDENTIFIED BY 'NovaSenha123';` |
+| `can't open file '...\minha-voz\app.py'` | Faltou entrar na pasta: `cd backend` |
+| `'vite' não é reconhecido` | Faltou instalar as bibliotecas: `npm.cmd install` |
+| Página em branco / "Não foi possível conectar" | Confira se o `npm.cmd run dev` está rodando e abra o endereço que ele mostrar |
+| `Can't create database 'minha_voz'; database exists` | Pode ignorar: o banco já foi criado antes |
+
+### 1.7 Como os dados ficam protegidos
+
+- As senhas das contas são guardadas só como **hash** (PBKDF2 com sal), nunca o texto da senha.
+- A sessão de login expira em 30 dias (`DIAS_SESSAO`).
+- O app usa um usuário próprio do MySQL (`minhavoz_app`), que só mexe no banco `minha_voz`.
+- A senha do banco fica só no `.env`, fora do código e fora do GitHub.
+- A porta do MySQL fica fechada para a rede (firewall desmarcado na instalação).
+- Cópia de segurança: `mysqldump -u root -p minha_voz > backup.sql`
+
+---
+
+## Parte 2: publicar no GitHub
+
+O projeto já vem com a automação `.github/workflows/pages.yml`. Toda vez que você enviar uma atualização,
+o GitHub monta o site e publica sozinho no **GitHub Pages**, de graça.
+
+> No GitHub Pages roda o app no **modo demonstração**: os dados ficam salvos no navegador de cada pessoa.
+> O MySQL continua sendo usado quando o app roda no seu computador com a API ligada (parte 1).
+
+### 2.1 Criar o repositório
+
+1. Entre no GitHub com a conta que vai ser dona do projeto e abra **https://github.com/new**.
+2. Em *Repository name*, digite `minha-voz`.
+3. Marque **Public** (o GitHub Pages grátis só funciona em repositório público).
+4. **Não** marque "Add a README", ".gitignore" nem licença. Clique em **Create repository**.
+
+### 2.2 Ligar o GitHub Pages
+
+No repositório criado: **Settings > Pages**. Em **Source**, escolha **GitHub Actions**.
+
+### 2.3 Enviar o projeto (primeira vez)
+
+No terminal do VSCode, na pasta `minha-voz` (troque o nome, o e-mail e o endereço do repositório):
+
+```
+git config --global user.name "SeuUsuarioDoGitHub"
+git config --global user.email "seu-email@exemplo.com"
+git init
+git add .
+git commit -m "Primeira versão do Minha Voz"
+git branch -M main
+git remote add origin https://github.com/SeuUsuarioDoGitHub/minha-voz.git
+git push -u origin main
+```
+
+No `git push`, o navegador abre para você autorizar. Entre com a conta dona do repositório.
+
+### 2.4 Ver o site
+
+1. No GitHub, abra a aba **Actions**. Vai aparecer **"Publicar no GitHub Pages"** rodando.
+2. Quando ficar ✅ verde, o site abre em:
+   **https://SeuUsuarioDoGitHub.github.io/minha-voz/** (o link também aparece em *Settings > Pages*).
+
+Se ficar ❌ vermelho, confira se o passo 2.2 foi feito, clique no item com erro e depois em
+**Re-run all jobs**.
+
+### 2.5 Enviar atualizações
+
+Sempre que mudar alguma coisa no projeto:
+
+```
+git add .
+git commit -m "Descreva aqui o que mudou"
+git push
+```
+
+O site é publicado de novo sozinho em 1 a 2 minutos.
+
+Também dá para fazer pelo VSCode, sem digitar comandos: ícone **Source Control** (barra da esquerda),
+escreva a mensagem, clique em **Commit** e depois em **Sync Changes**.
+
+### 2.6 O que vai e o que não vai para o GitHub
+
+| Vai | Não vai (está no `.gitignore`) |
+|---|---|
+| Todo o código (`src/`, `backend/`, `public/`...) | `node_modules/` (recriado com `npm install`) |
+| `package.json` e `package-lock.json` | `backend/.env` (senha do banco) |
+| `backend/schema.sql` (modelo das tabelas) | `dist/` (gerado na publicação) |
+| `.github/workflows/pages.yml` (a automação) | `backend/dados.json` |
+
+---
+
+## Resumo rápido
+
+| Quero... | Comando / lugar |
+|---|---|
+| Rodar o app | `npm.cmd run dev` → http://localhost:5173 |
+| Ligar a API com MySQL | `cd backend` e `python app.py` |
+| Ver os dados | Workbench > Schemas > minha_voz > Tables |
+| Publicar atualização | `git add .`, `git commit -m "..."`, `git push` |
+| Ver o site online | https://SeuUsuarioDoGitHub.github.io/minha-voz/ |
