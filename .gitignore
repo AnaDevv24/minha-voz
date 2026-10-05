@@ -7,4 +7,6 @@ __pycache__
 .venv
 backend/dados.json
 backend/.env
+# O modelo do .env vai para o GitHub (sem senha de verdade):
+!backend/.env.exemplo
 servidor.env

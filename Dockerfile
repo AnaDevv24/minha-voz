@@ -1,5 +1,5 @@
 # Imagem do Minha Voz para servidor: monta o app React e roda a API Flask (que também entrega o app).
-# Usada pelo docker-compose.yml (veja PUBLICAR-ONLINE.md).
+# Usada pelo docker-compose.yml (servidor próprio, opcional).
 
 # 1) Monta o front-end (pasta dist/)
 FROM node:22-alpine AS frontend

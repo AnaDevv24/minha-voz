@@ -21,6 +21,9 @@ Como rodar:
     python app.py                    -> http://localhost:5000/api/saude
 """
 import hashlib
+import hmac
+import re
+import time
 import json
 import os
 import secrets
@@ -50,6 +53,8 @@ def carregar_env(caminho):
 carregar_env(os.path.join(PASTA, ".env"))
 
 app = Flask(__name__)
+# Recusa envios maiores que 5 MB (resposta 413), para ninguém lotar o servidor.
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 CORS(app)
 
 COLECOES_DO_MEDIADOR = ("criancas", "categorias", "cartoes")
@@ -82,6 +87,10 @@ class BancoArquivo:
 
     def obter(self, colecao, doc_id):
         return self.colecoes.get(colecao, {}).get(doc_id)
+
+    def obter_varios(self, colecao, ids):
+        docs = self.colecoes.get(colecao, {})
+        return [docs[i] for i in ids if i in docs]
 
     def salvar(self, colecao, doc):
         with self.trava:
@@ -121,6 +130,10 @@ class BancoFirestore:
     def obter(self, colecao, doc_id):
         d = self.db.collection(colecao).document(doc_id).get()
         return d.to_dict() if d.exists else None
+
+    def obter_varios(self, colecao, ids):
+        refs = [self.db.collection(colecao).document(i) for i in ids]
+        return [d.to_dict() for d in self.db.get_all(refs) if d.exists] if refs else []
 
     def salvar(self, colecao, doc):
         self.db.collection(colecao).document(doc["id"]).set(doc)
@@ -206,6 +219,15 @@ class BancoMySQL:
             linha = cur.fetchone()
             return json.loads(linha[0]) if linha else None
 
+    def obter_varios(self, colecao, ids):
+        tabela, _ = self._tabela(colecao)
+        ids = list(ids)
+        if not ids:
+            return []
+        with self._conectar() as con, con.cursor() as cur:
+            cur.execute(f"SELECT dados FROM {tabela} WHERE id IN ({', '.join(['%s'] * len(ids))})", ids)
+            return [json.loads(l[0]) for l in cur.fetchall()]
+
     def _linha(self, colunas, doc):
         return [doc["id"], *[doc.get(campo) for campo in colunas], json.dumps(doc, ensure_ascii=False)]
 
@@ -261,6 +283,93 @@ def erro(msg, status=400):
     return jsonify(erro=msg), status
 
 
+class Recusado(Exception):
+    """Pedido inválido: vira uma resposta de erro, nunca um erro interno (500)."""
+
+    def __init__(self, msg, status=400):
+        self.msg, self.status = msg, status
+
+
+@app.errorhandler(Recusado)
+def _recusado(e):
+    return erro(e.msg, e.status)
+
+
+@app.errorhandler(400)
+def _pedido_invalido(_):
+    return erro("Pedido inválido.")
+
+
+@app.errorhandler(413)
+def _grande_demais(_):
+    return erro("Envio grande demais (máximo 5 MB).", 413)
+
+
+@app.after_request
+def cabecalhos_de_seguranca(resp):
+    """Cabeçalhos que pedem ao navegador para não adivinhar tipos de arquivo, não abrir o site
+    dentro de outro (clickjacking) e não vazar o endereço para outros sites."""
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    return resp
+
+
+ID_VALIDO = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def checar_id(valor):
+    """Ids só com letras, números, ponto, hífen e sublinhado (até 64). Barra qualquer tentativa de injeção."""
+    if not isinstance(valor, str) or not ID_VALIDO.match(valor):
+        raise Recusado("Identificador inválido.")
+    return valor
+
+
+def corpo_json(lista=False):
+    """Lê o JSON do pedido e confere o formato (objeto, ou lista de objetos quando lista=True)."""
+    d = request.get_json(silent=True)
+    if lista and isinstance(d, list) and all(isinstance(i, dict) for i in d):
+        return d
+    if isinstance(d, dict):
+        return [d] if lista else d
+    raise Recusado("Envie os dados em formato JSON.")
+
+
+def senha_confere(senha, senha_hash):
+    sal, h = senha_hash.split("$")
+    # compare_digest compara em tempo constante (não dá pistas pelo tempo de resposta)
+    return hmac.compare_digest(hash_senha(str(senha), sal), h)
+
+
+# Proteção contra força bruta: depois de 5 senhas erradas para o mesmo e-mail (ou 30 do mesmo
+# endereço de internet) em 15 minutos, o login fica bloqueado por 15 minutos.
+JANELA_BLOQUEIO = 15 * 60
+_falhas: dict[str, list[float]] = {}
+_trava_falhas = threading.Lock()
+
+
+def _chaves_login(email):
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    return [f"email:{email}", f"ip:{ip}"]
+
+
+def login_bloqueado(email):
+    agora_s = time.time()
+    with _trava_falhas:
+        for chave, limite in zip(_chaves_login(email), (5, 30)):
+            recentes = [t for t in _falhas.get(chave, []) if agora_s - t < JANELA_BLOQUEIO]
+            _falhas[chave] = recentes
+            if len(recentes) >= limite:
+                return True
+    return False
+
+
+def registrar_falha_login(email):
+    with _trava_falhas:
+        for chave in _chaves_login(email):
+            _falhas.setdefault(chave, []).append(time.time())
+
+
 def autenticado(f):
     """RNF08: só usuários autenticados acessam os dados."""
 
@@ -291,7 +400,7 @@ def crianca_do_mediador(crianca_id, mediador_id):
     return c if c and c.get("mediadorId") == mediador_id else None
 
 
-def validar(colecao, doc):
+def validar(colecao, doc, mediador_id):
     """Regras de negócio mínimas antes de gravar (o Flask como camada de regras, seção 9.3)."""
     if colecao == "criancas":
         if not str(doc.get("nomeApelido", "")).strip():
@@ -303,7 +412,8 @@ def validar(colecao, doc):
     if colecao == "cartoes":
         if not str(doc.get("texto", "")).strip():
             return "O texto do cartão é obrigatório."
-        if not banco.obter("categorias", doc.get("categoriaId", "")):
+        categoria = banco.obter("categorias", str(doc.get("categoriaId", "")))
+        if not categoria or categoria.get("mediadorId") != mediador_id:
             return "Categoria inexistente."
     return None
 
@@ -313,22 +423,27 @@ def validar(colecao, doc):
 # --------------------------------------------------------------------------
 @app.post("/api/auth/cadastro")
 def cadastro():
-    d = request.get_json(force=True)
+    d = corpo_json()
     email = str(d.get("email", "")).strip().lower()
-    if not email or len(d.get("senha", "")) < 8:
+    if not email or "@" not in email or len(email) > 255 or len(str(d.get("senha", ""))) < 8:
         return erro("Informe e-mail e senha com pelo menos 8 caracteres.")
     if not d.get("consentimentoLGPD"):
         return erro("É preciso aceitar os termos de privacidade (LGPD).")
     if banco.listar("mediadores", email=email):
         return erro("Já existe uma conta com este e-mail.", 409)
-    sal = secrets.token_hex(8)
+    # O id pode vir do aparelho (conta criada offline), mas nunca pode ser o de uma conta existente:
+    # senão alguém poderia "recadastrar" o id de outra pessoa e tomar a conta dela.
+    novo_id = checar_id(d["id"]) if d.get("id") else str(uuid.uuid4())
+    if banco.obter("mediadores", novo_id):
+        return erro("Não foi possível criar a conta com este identificador.", 409)
+    sal = secrets.token_hex(16)
     mediador = {
-        "id": d.get("id") or str(uuid.uuid4()),
-        "nome": str(d.get("nome", "")).strip(),
+        "id": novo_id,
+        "nome": str(d.get("nome", "")).strip()[:100],
         "email": email,
-        "senhaHash": f"{sal}${hash_senha(d['senha'], sal)}",
-        "papel": d.get("papel", "Responsável"),
-        "telefone": d.get("telefone", ""),
+        "senhaHash": f"{sal}${hash_senha(str(d['senha']), sal)}",
+        "papel": str(d.get("papel", "Responsável"))[:50],
+        "telefone": str(d.get("telefone", ""))[:30],
         "consentimentoLGPD": d["consentimentoLGPD"] if isinstance(d["consentimentoLGPD"], str) else agora(),
     }
     banco.salvar("mediadores", mediador)
@@ -337,12 +452,14 @@ def cadastro():
 
 @app.post("/api/auth/login")
 def login():
-    d = request.get_json(force=True)
-    achados = banco.listar("mediadores", email=str(d.get("email", "")).strip().lower())
-    if achados:
-        sal, h = achados[0]["senhaHash"].split("$")
-        if hash_senha(d.get("senha", ""), sal) == h:
-            return jsonify(token=novo_token(achados[0]["id"]), mediador=sem_senha(achados[0]))
+    d = corpo_json()
+    email = str(d.get("email", "")).strip().lower()[:255]
+    if login_bloqueado(email):
+        return erro("Muitas tentativas erradas. Espere 15 minutos e tente de novo.", 429)
+    achados = banco.listar("mediadores", email=email)
+    if achados and senha_confere(d.get("senha", ""), achados[0]["senhaHash"]):
+        return jsonify(token=novo_token(achados[0]["id"]), mediador=sem_senha(achados[0]))
+    registrar_falha_login(email)
     return erro("E-mail ou senha incorretos.", 401)
 
 
@@ -364,8 +481,8 @@ def sair(mediador_id):
 @autenticado
 def atualizar_conta(mediador_id):
     m = banco.obter("mediadores", mediador_id)
-    d = request.get_json(force=True)
-    m.update({k: d[k] for k in ("nome", "papel", "telefone") if k in d})
+    d = corpo_json()
+    m.update({k: str(d[k])[:100] for k in ("nome", "papel", "telefone") if k in d})
     banco.salvar("mediadores", m)
     return jsonify(sem_senha(m))
 
@@ -374,14 +491,13 @@ def atualizar_conta(mediador_id):
 @autenticado
 def alterar_senha(mediador_id):
     m = banco.obter("mediadores", mediador_id)
-    d = request.get_json(force=True)
-    sal, h = m["senhaHash"].split("$")
-    if hash_senha(d.get("atual", ""), sal) != h:
+    d = corpo_json()
+    if not senha_confere(d.get("atual", ""), m["senhaHash"]):
         return erro("Senha atual incorreta.", 403)
-    if len(d.get("nova", "")) < 8:
+    if len(str(d.get("nova", ""))) < 8:
         return erro("A nova senha precisa ter pelo menos 8 caracteres.")
-    novo_sal = secrets.token_hex(8)
-    m["senhaHash"] = f"{novo_sal}${hash_senha(d['nova'], novo_sal)}"
+    novo_sal = secrets.token_hex(16)
+    m["senhaHash"] = f"{novo_sal}${hash_senha(str(d['nova']), novo_sal)}"
     banco.salvar("mediadores", m)
     return "", 204
 
@@ -403,12 +519,13 @@ def salvar(mediador_id, colecao, doc_id):
     """Cria ou atualiza (upsert) um documento. O id vem do front-end, que funciona offline."""
     if colecao not in COLECOES_DO_MEDIADOR:
         return erro("Coleção inválida", 404)
+    checar_id(doc_id)
     existente = banco.obter(colecao, doc_id)
     if existente and existente.get("mediadorId") != mediador_id:
         return erro("Sem permissão", 403)
-    doc = request.get_json(force=True)
+    doc = corpo_json()
     doc.update(id=doc_id, mediadorId=mediador_id, atualizadoEm=agora())
-    problema = validar(colecao, doc)
+    problema = validar(colecao, doc, mediador_id)
     if problema:
         return erro(problema)
     return jsonify(banco.salvar(colecao, doc)), 200 if existente else 201
@@ -419,6 +536,7 @@ def salvar(mediador_id, colecao, doc_id):
 def excluir(mediador_id, colecao, doc_id):
     if colecao not in COLECOES_DO_MEDIADOR:
         return erro("Coleção inválida", 404)
+    checar_id(doc_id)
     doc = banco.obter(colecao, doc_id)
     if doc and doc.get("mediadorId") != mediador_id:
         return erro("Sem permissão", 403)
@@ -440,10 +558,13 @@ def registrar(mediador_id, tipo):
     """Recebe um ou vários eventos de toque (/api/eventos) ou frases faladas (/api/frases)."""
     if tipo not in ("eventos", "frases"):
         return erro("Rota inválida", 404)
-    d = request.get_json(force=True)
-    itens = d if isinstance(d, list) else [d]
+    itens = corpo_json(lista=True)
     minhas = {c["id"] for c in banco.listar("criancas", mediadorId=mediador_id)}
-    validos = [i for i in itens if i.get("criancaId") in minhas and i.get("id")]
+    candidatos = [i for i in itens
+                  if i.get("criancaId") in minhas and isinstance(i.get("id"), str) and ID_VALIDO.match(i["id"])]
+    # um id que já existe só pode ser regravado se o registro for de uma criança deste usuário
+    de_outros = {a["id"] for a in banco.obter_varios(tipo, {i["id"] for i in candidatos}) if a.get("criancaId") not in minhas}
+    validos = [i for i in candidatos if i["id"] not in de_outros]
     if validos:
         banco.salvar_varios(tipo, validos)
     return jsonify(recebidos=len(validos)), 201
@@ -452,7 +573,7 @@ def registrar(mediador_id, tipo):
 @app.get("/api/criancas/<crianca_id>/relatorio")
 @autenticado
 def relatorio(mediador_id, crianca_id):
-    if not crianca_do_mediador(crianca_id, mediador_id):
+    if not ID_VALIDO.match(crianca_id) or not crianca_do_mediador(crianca_id, mediador_id):
         return erro("Não encontrado", 404)
     eventos = banco.listar("eventos", criancaId=crianca_id)
     inicio = request.args.get("inicio")  # data ISO opcional

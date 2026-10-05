@@ -54,11 +54,24 @@ Abra o **MySQL Installer** e escolha estas opções:
 | MySQL Router | Deixe **desmarcado** e clique em **Finish** |
 | Samples and Examples | Digite a senha do root, **Check**, **Execute** e **Finish** |
 
-### 1.2 Criar o banco e o usuário do app
+### 1.2 Ligar tudo com dois cliques (jeito fácil)
 
-1. Abra o **MySQL Workbench** e clique em **Local instance MySQL80**. Digite a senha do root.
-2. Na área branca do meio (aba **Query 1**), cole o texto abaixo.
-   Troque `SuaSenhaForte123` por uma senha nova, só do app, **com letras e números, sem aspas e sem `#`**:
+Na pasta do projeto, dê **dois cliques em `INICIAR.bat`**. Ele faz tudo sozinho:
+
+1. instala as bibliotecas do app e da API (só demora na primeira vez);
+2. **na primeira vez neste computador**, pede a **senha do root do MySQL** (a do passo 1.1;
+   ela não aparece enquanto você digita) e então cria o banco `minha_voz`, o usuário `minhavoz_app`
+   com uma senha forte aleatória e o arquivo `backend/.env`. **Não precisa criar nada à mão**;
+3. abre a API numa janela separada (tem que aparecer **`Minha Voz API usando: BancoMySQL`**);
+4. abre o app no navegador em **http://localhost:5173**.
+
+Nas próximas vezes, os dois cliques só ligam o app e a API. Para desligar, feche as duas janelas pretas.
+
+> As tabelas também são criadas sozinhas pela API na primeira vez (o modelo está em `backend/schema.sql`).
+
+### 1.3 Jeito manual (se preferir os comandos)
+
+**Criar o banco pelo Workbench** (troque `SuaSenhaForte123`; use só letras e números):
 
 ```sql
 CREATE DATABASE minha_voz CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -67,46 +80,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX ON minha_voz.* TO 'minhavoz_
 FLUSH PRIVILEGES;
 ```
 
-3. Clique no **raio amarelo ⚡** (o primeiro, acima do texto). Embaixo, em *Output*, devem aparecer
-   4 linhas com ✅ verde.
+Depois copie `backend/.env.exemplo` para `backend/.env` e coloque a mesma senha em `MYSQL_SENHA`.
+(Ou, em vez disso tudo, rode `python configurar.py` dentro da pasta `backend`.)
 
-> As tabelas **não** precisam ser criadas à mão: a API cria todas sozinhas na primeira vez que liga
-> (o modelo delas está em `backend/schema.sql`).
-
-### 1.3 Criar o arquivo `.env` com a senha
-
-1. No VSCode, dentro da pasta `backend`, crie um arquivo chamado **`.env`** (com o ponto na frente).
-2. Cole este conteúdo e troque a senha pela mesma do passo 1.2:
-
-```
-MYSQL_HOST=localhost
-MYSQL_PORTA=3306
-MYSQL_BANCO=minha_voz
-MYSQL_USUARIO=minhavoz_app
-MYSQL_SENHA=SuaSenhaForte123
-DIAS_SESSAO=30
-FLASK_DEBUG=0
-```
-
-3. Salve com **Ctrl+S** (a bolinha branca na aba do arquivo tem que sumir).
-
-> O `.env` guarda a senha do banco. Ele **não vai para o GitHub** (está no `.gitignore`), então cada
-> computador precisa criar o seu.
-
-### 1.4 Ligar tudo
-
-São **dois terminais** no VSCode (abra outro pelo **+** do terminal).
-
-**Terminal 1 (o app):** na pasta `minha-voz`
+**Ligar** em dois terminais do VSCode:
 
 ```
 npm.cmd install
 npm.cmd run dev
 ```
-
-(O `npm install` só é preciso na primeira vez ou depois de baixar o projeto de novo.)
-
-**Terminal 2 (a API):** na pasta `minha-voz`
 
 ```
 cd backend
@@ -114,7 +96,10 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-Tem que aparecer **`Minha Voz API usando: BancoMySQL`**. Deixe os dois terminais abertos.
+### 1.4 O `.env` e a segurança dele
+
+O `backend/.env` guarda a senha do banco. Ele **não vai para o GitHub** (está no `.gitignore`),
+então cada computador cria o seu (o `INICIAR.bat` faz isso na primeira vez).
 
 ### 1.5 Conferir
 
@@ -128,7 +113,9 @@ Tem que aparecer **`Minha Voz API usando: BancoMySQL`**. Deixe os dois terminais
 
 | Mensagem | O que fazer |
 |---|---|
-| `Access denied for user 'minhavoz_app'` | A senha do `.env` não bate com a do banco. Confira e **salve** o `.env`. Para redefinir, rode no Workbench: `ALTER USER 'minhavoz_app'@'localhost' IDENTIFIED BY 'NovaSenha123';` |
+| `Access denied for user 'minhavoz_app'` | A senha do `.env` não bate com a do banco. Rode `python configurar.py` na pasta `backend`: ele cria uma senha nova e regrava o `.env` |
+| `Senha do root incorreta` | É a senha criada na instalação do MySQL (passo 1.1, tela *Accounts and Roles*) |
+| `Nao consegui falar com o MySQL` | Abra *Serviços* do Windows, procure **MySQL80** e clique em **Iniciar** |
 | `can't open file '...\minha-voz\app.py'` | Faltou entrar na pasta: `cd backend` |
 | `'vite' não é reconhecido` | Faltou instalar as bibliotecas: `npm.cmd install` |
 | Página em branco / "Não foi possível conectar" | Confira se o `npm.cmd run dev` está rodando e abra o endereço que ele mostrar |
@@ -164,46 +151,32 @@ o GitHub monta o site e publica sozinho no **GitHub Pages**, de graça.
 
 No repositório criado: **Settings > Pages**. Em **Source**, escolha **GitHub Actions**.
 
-### 2.3 Enviar o projeto (primeira vez)
+### 2.3 Enviar o projeto
 
-No terminal do VSCode, na pasta `minha-voz` (troque o nome, o e-mail e o endereço do repositório):
+Na pasta do projeto, dê **dois cliques em `ENVIAR-PARA-GITHUB.bat`**. Ele:
 
-```
-git config --global user.name "SeuUsuarioDoGitHub"
-git config --global user.email "seu-email@exemplo.com"
-git init
-git add .
-git commit -m "Primeira versão do Minha Voz"
-git branch -M main
-git remote add origin https://github.com/SeuUsuarioDoGitHub/minha-voz.git
-git push -u origin main
-```
+1. pergunta seu usuário e e-mail do GitHub (só na primeira vez);
+2. liga a pasta ao repositório **AnaDevv24/minha-voz** (o endereço está no começo do arquivo, se precisar trocar);
+3. mostra a lista do que mudou, pede uma frase descrevendo a mudança e envia.
 
-No `git push`, o navegador abre para você autorizar. Entre com a conta dona do repositório.
+Na primeira vez, o navegador abre para você autorizar: entre com a conta **AnaDevv24**.
+
+> Use sempre o `.bat` (ou os comandos do Git) e **não** o "Upload files" do site do GitHub:
+> o envio pelo site deixa de fora arquivos que começam com ponto, como `.github` e `backend/.env.exemplo`.
 
 ### 2.4 Ver o site
 
 1. No GitHub, abra a aba **Actions**. Vai aparecer **"Publicar no GitHub Pages"** rodando.
 2. Quando ficar ✅ verde, o site abre em:
-   **https://SeuUsuarioDoGitHub.github.io/minha-voz/** (o link também aparece em *Settings > Pages*).
+   **https://anadevv24.github.io/minha-voz/** (o link também aparece em *Settings > Pages*).
 
 Se ficar ❌ vermelho, confira se o passo 2.2 foi feito, clique no item com erro e depois em
 **Re-run all jobs**.
 
 ### 2.5 Enviar atualizações
 
-Sempre que mudar alguma coisa no projeto:
-
-```
-git add .
-git commit -m "Descreva aqui o que mudou"
-git push
-```
-
-O site é publicado de novo sozinho em 1 a 2 minutos.
-
-Também dá para fazer pelo VSCode, sem digitar comandos: ícone **Source Control** (barra da esquerda),
-escreva a mensagem, clique em **Commit** e depois em **Sync Changes**.
+Sempre que mudar alguma coisa no projeto, dê dois cliques em **`ENVIAR-PARA-GITHUB.bat`** de novo.
+O site é publicado sozinho em 1 a 2 minutos.
 
 ### 2.6 O que vai e o que não vai para o GitHub
 
@@ -220,8 +193,7 @@ escreva a mensagem, clique em **Commit** e depois em **Sync Changes**.
 
 | Quero... | Comando / lugar |
 |---|---|
-| Rodar o app | `npm.cmd run dev` → http://localhost:5173 |
-| Ligar a API com MySQL | `cd backend` e `python app.py` |
+| Ligar o app e a API com MySQL | Dois cliques em `INICIAR.bat` → http://localhost:5173 |
 | Ver os dados | Workbench > Schemas > minha_voz > Tables |
-| Publicar atualização | `git add .`, `git commit -m "..."`, `git push` |
-| Ver o site online | https://SeuUsuarioDoGitHub.github.io/minha-voz/ |
+| Publicar atualização | Dois cliques em `ENVIAR-PARA-GITHUB.bat` |
+| Ver o site online | https://anadevv24.github.io/minha-voz/ |

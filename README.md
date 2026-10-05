@@ -88,12 +88,20 @@ python app.py                 # http://localhost:5000/api/saude
 Para usar o **Cloud Firestore** em vez do MySQL: `pip install firebase-admin`, baixe a chave da conta de serviço do seu
 projeto Firebase e defina `FIREBASE_CREDENCIAIS=caminho/da/chave.json` (deixe `MYSQL_BANCO` vazio).
 
-## Publicar na internet
+## Publicar no GitHub e conectar ao MySQL
 
-Para outras pessoas acessarem de qualquer lugar: `npm run build:servidor` gera a pasta `dist/`, e o Flask passa a
-entregar o app e a API no mesmo endereço. Para um servidor próprio e grátis (Oracle Cloud Always Free) com MySQL e HTTPS, o projeto
-traz `Dockerfile`, `docker-compose.yml`, `Caddyfile` e o script `instalar-servidor.sh`. Passo a passo em
-[`PUBLICAR-ONLINE.md`](PUBLICAR-ONLINE.md).
+No Windows: dois cliques em **`INICIAR.bat`** liga tudo (na primeira vez ele pede a senha do root do MySQL
+e cria o banco e o `backend/.env` sozinho). Dois cliques em **`ENVIAR-PARA-GITHUB.bat`** envia as mudanças.
+
+
+Passo a passo completo em [`GUIA-GITHUB-E-MYSQL.md`](GUIA-GITHUB-E-MYSQL.md): como ligar o app ao MySQL no seu
+computador e como enviar o projeto para o GitHub, com o site publicado de graça no GitHub Pages.
+
+## Segurança
+
+Resultado dos testes de ataque (injeção de SQL, acesso a outras contas, força bruta...) em
+[`RELATORIO-SEGURANCA.md`](RELATORIO-SEGURANCA.md). Para repetir: com a API ligada, `cd backend` e
+`python teste_seguranca.py`.
 
 ## Telas
 
