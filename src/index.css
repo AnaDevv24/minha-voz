@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Nunito", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --color-primaria-50: #eef6fc;
+  --color-primaria-100: #d9ebf8;
+  --color-primaria-200: #b6d8f1;
+  --color-primaria-500: #3b93d3;
+  --color-primaria-600: #2f86c6;
+  --color-primaria-700: #256ca3;
+  --color-primaria-800: #1f5784;
+  --color-tinta: #1f2d3d;
+  --color-fundo: #f3f6fa;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  @apply bg-fundo text-tinta antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Emojis usados como pictogramas */
+.pictograma {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  line-height: 1;
+}
+
+/* Foco visível para navegação por teclado (acessibilidade) */
+:focus-visible {
+  outline: 3px solid var(--color-primaria-500);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes surgir {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.animar-surgir { animation: surgir 0.18s ease-out; }
+
+@keyframes toque {
+  0% { transform: scale(1); }
+  40% { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+.animar-toque { animation: toque 0.25s ease-out; }
+
+@keyframes segurar {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes carregar {
+  from { width: 0%; }
+  to { width: 100%; }
+}

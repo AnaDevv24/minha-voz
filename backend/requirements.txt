@@ -1,0 +1,6 @@
+flask>=3.0
+flask-cors>=4.0
+# MySQL / MariaDB (usado quando MYSQL_BANCO está definido no .env)
+pymysql[rsa]>=1.1  # [rsa] instala o "cryptography", exigido pela senha forte do MySQL 8
+# Para usar o Cloud Firestore de verdade (opcional):
+# firebase-admin>=6.5
